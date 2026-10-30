@@ -1,0 +1,213 @@
+/* 2026FA-ENGR-2304-00003-GETE-HENOCK-P07 */
+/* ChatGPT query:“Help me create a Tic-Tac-Toe program in C using my class material, and explain each function so I can understand and test it myself.” */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+#define SIZE 9
+
+void resetBoard(char board[]);
+void displayBoard(char board[]);
+int readNumber(int minimum, int maximum);
+char chooseSymbol(void);
+char checkWinner(char board[]);
+int boardFull(char board[]);
+void humanMove(char board[], char symbol);
+int findWinningMove(char board[], char symbol);
+void computerMove(char board[], char computer, char human);
+void pauseBeforeMove(void);
+
+int main(void)
+{
+    char board[SIZE];
+    char player1, player2, current, winner;
+    int players, turn, again = 1;
+
+    srand((unsigned int)time(NULL));
+    printf("Welcome to Tic-Tac-Toe!\n");
+
+    while (again == 1) {
+        printf("\nNumber of players (1 = computer, 2 = two players): ");
+        players = readNumber(1, 2);
+        player1 = chooseSymbol();
+        player2 = (player1 == 'X') ? 'O' : 'X';
+        resetBoard(board);
+        turn = rand() % 2;
+        winner = ' ';
+
+        printf("Player 1 is %c. ", player1);
+        if (players == 1)
+            printf("Computer is %c.\n", player2);
+        else
+            printf("Player 2 is %c.\n", player2);
+
+        if (turn == 0)
+            printf("Player 1 goes first.\n");
+        else if (players == 1)
+            printf("Computer goes first.\n");
+        else
+            printf("Player 2 goes first.\n");
+
+        displayBoard(board);
+        while (winner == ' ' && !boardFull(board)) {
+            current = (turn == 0) ? player1 : player2;
+            if (players == 1 && turn == 1) {
+                printf("Computer is thinking...\n");
+                fflush(stdout);
+                pauseBeforeMove();
+                computerMove(board, player2, player1);
+            } else {
+                printf("Player %d (%c), choose a square (1-9): ",
+                       turn + 1, current);
+                humanMove(board, current);
+            }
+            displayBoard(board);
+            winner = checkWinner(board);
+            turn = 1 - turn;
+        }
+
+        if (winner == player1)
+            printf("Player 1 (%c) wins!\n", player1);
+        else if (winner == player2 && players == 1)
+            printf("Computer (%c) wins!\n", player2);
+        else if (winner == player2)
+            printf("Player 2 (%c) wins!\n", player2);
+        else
+            printf("It is a tie!\n");
+
+        printf("Play again? (1 = yes, 0 = end): ");
+        again = readNumber(0, 1);
+    }
+    printf("Thanks for playing!\n");
+    return 0;
+}
+
+/* Read a whole line so letters and extra input can be rejected. */
+int readNumber(int minimum, int maximum)
+{
+    char line[100], extra;
+    int number, ch;
+    while (1) {
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            printf("\nInput ended. Goodbye!\n");
+            exit(0);
+        }
+        /* Discard an overlong line instead of accepting part of it. */
+        for (ch = 0; line[ch] != '\0' && line[ch] != '\n'; ch++)
+            ;
+        if (line[ch] != '\n' && !feof(stdin)) {
+            while ((ch = getchar()) != '\n' && ch != EOF)
+                ;
+        } else if (sscanf(line, "%d %c", &number, &extra) == 1 &&
+                   number >= minimum && number <= maximum) {
+            return number;
+        }
+        printf("Enter a whole number from %d to %d: ", minimum, maximum);
+    }
+}
+
+char chooseSymbol(void)
+{
+    printf("Player 1: choose 1 for X or 2 for O: ");
+    if (readNumber(1, 2) == 1)
+        return 'X';
+    return 'O';
+}
+
+void resetBoard(char board[])
+{
+    int i;
+    for (i = 0; i < SIZE; i++)
+        board[i] = (char)('1' + i);
+}
+
+void displayBoard(char board[])
+{
+    printf("\n %c | %c | %c\n", board[0], board[1], board[2]);
+    printf("---+---+---\n");
+    printf(" %c | %c | %c\n", board[3], board[4], board[5]);
+    printf("---+---+---\n");
+    printf(" %c | %c | %c\n\n", board[6], board[7], board[8]);
+}
+
+char checkWinner(char board[])
+{
+    int i;
+    for (i = 0; i < 3; i++) {
+        if (board[3*i] == board[3*i+1] && board[3*i+1] == board[3*i+2])
+            return board[3*i];
+        if (board[i] == board[i+3] && board[i+3] == board[i+6])
+            return board[i];
+    }
+    if (board[0] == board[4] && board[4] == board[8])
+        return board[0];
+    if (board[2] == board[4] && board[4] == board[6])
+        return board[2];
+    return ' ';
+}
+
+int boardFull(char board[])
+{
+    int i;
+    for (i = 0; i < SIZE; i++)
+        if (board[i] != 'X' && board[i] != 'O')
+            return 0;
+    return 1;
+}
+
+void humanMove(char board[], char symbol)
+{
+    int square;
+    while (1) {
+        square = readNumber(1, 9) - 1;
+        if (board[square] != 'X' && board[square] != 'O') {
+            board[square] = symbol;
+            return;
+        }
+        printf("That square is taken. Choose another square (1-9): ");
+    }
+}
+
+/* Temporarily try each empty square, then restore its original number. */
+int findWinningMove(char board[], char symbol)
+{
+    int i;
+    char saved, winner;
+    for (i = 0; i < SIZE; i++) {
+        if (board[i] != 'X' && board[i] != 'O') {
+            saved = board[i];
+            board[i] = symbol;
+            winner = checkWinner(board);
+            board[i] = saved;
+            if (winner == symbol)
+                return i;
+        }
+    }
+    return -1;
+}
+
+void computerMove(char board[], char computer, char human)
+{
+    int square;
+    square = findWinningMove(board, computer);
+    if (square == -1)
+        square = findWinningMove(board, human);
+    if (square == -1 && board[4] == '5')
+        square = 4;
+    if (square == -1) {
+        do {
+            square = rand() % SIZE;
+        } while (board[square] == 'X' || board[square] == 'O');
+    }
+    board[square] = computer;
+    printf("Computer chooses square %d.\n", square + 1);
+}
+
+void pauseBeforeMove(void)
+{
+    time_t start = time(NULL);
+    while (difftime(time(NULL), start) < 1.0) {
+        /* Brief pause using standard C time functions. */
+    }
+}

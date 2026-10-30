@@ -1,0 +1,240 @@
+/* 2026FA-ENGR-2304-00003-GETE-HENOCK-P07 */
+/* Henock Gete - Manufacturing Process Data Analysis
+   Input columns: Year Month Day L1 L2 L3 L4 L5 L6.
+   Supports commas, spaces, or tabs and an optional header.
+   Compile: gcc -x c 2026FA-ENGR-2304-00003-P07-GETE-HENOCK.txt -o p07 -lm
+*/
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <limits.h>
+#include <errno.h>
+
+#define MAX_ROWS 10000
+#define PLANTS 6
+
+typedef struct {
+    int year, month, day;
+    int units[PLANTS];
+} Record;
+
+int readLine(char text[], int size)
+{
+    int ch;
+    if (!fgets(text, size, stdin)) return 0;
+    if (!strchr(text, '\n'))
+        while ((ch = getchar()) != '\n' && ch != EOF) { }
+    text[strcspn(text, "\r\n")] = '\0';
+    return 1;
+}
+
+int readInteger(const char prompt[], int *value)
+{
+    char text[80], *end;
+    long number;
+    printf("%s", prompt);
+    if (!readLine(text, sizeof(text))) return 0;
+    errno = 0;
+    number = strtol(text, &end, 10);
+    if (end == text || *end || errno == ERANGE
+        || number < INT_MIN || number > INT_MAX) {
+        puts("Please enter a whole number.");
+        return 0;
+    }
+    *value = (int)number;
+    return 1;
+}
+
+int loadData(const char filename[], Record data[])
+{
+    FILE *file = fopen(filename, "r");
+    char line[1024], *token, *end;
+    int count = 0, skipped = 0;
+    if (!file) { puts("Could not open the data file."); return 0; }
+    while (fgets(line, sizeof(line), file)) {
+        int values[9], columns = 0, valid = 1, i;
+        if (!strchr(line, '\n') && !feof(file)) {
+            int ch;
+            while ((ch = fgetc(file)) != '\n' && ch != EOF) { }
+            skipped++;
+            continue;
+        }
+        token = strtok(line, ", \t\r\n");
+        if (!token) continue;
+        if (!strcmp(token, "Year")) continue;
+        while (token) {
+            long number;
+            errno = 0;
+            number = strtol(token, &end, 10);
+            if (columns == 9 || end == token || *end || errno == ERANGE
+                || number < 0 || number > INT_MAX) {
+                valid = 0;
+                break;
+            }
+            values[columns++] = (int)number;
+            token = strtok(NULL, ", \t\r\n");
+        }
+        if (!valid || columns != 9 || values[0] < 1
+            || values[1] < 1 || values[1] > 12
+            || values[2] < 1 || values[2] > 31) {
+            skipped++;
+            continue;
+        }
+        if (count == MAX_ROWS) {
+            puts("File exceeds the row limit. Load cancelled.");
+            fclose(file);
+            return 0;
+        }
+        data[count].year = values[0];
+        data[count].month = values[1];
+        data[count].day = values[2];
+        for (i = 0; i < PLANTS; i++) data[count].units[i] = values[i + 3];
+        count++;
+    }
+    if (ferror(file)) { fclose(file); puts("Read error."); return 0; }
+    fclose(file);
+    printf("Loaded %d records; skipped %d invalid rows.\n", count, skipped);
+    return count;
+}
+
+int compareInts(const void *a, const void *b)
+{
+    int x = *(const int *)a, y = *(const int *)b;
+    return (x > y) - (x < y);
+}
+
+void statistics(FILE *out, const Record data[], int count)
+{
+    int plant, i, sorted[MAX_ROWS];
+    fprintf(out, "PLANT STATISTICS (%d recorded days)\n", count);
+    fprintf(out, "Population variance and SD use n; sample values use n-1.\n");
+    for (plant = 0; plant < PLANTS; plant++) {
+        double mean = 0, m2 = 0, median;
+        int run = 1, highest = 1;
+        for (i = 0; i < count; i++) {
+            double difference = data[i].units[plant] - mean;
+            sorted[i] = data[i].units[plant];
+            mean += difference / (i + 1);
+            m2 += difference * (data[i].units[plant] - mean);
+        }
+        qsort(sorted, count, sizeof(int), compareInts);
+        median = count % 2 ? sorted[count / 2]
+                 : ((double)sorted[count / 2 - 1] + sorted[count / 2]) / 2;
+        fprintf(out, "\nPlant L%d\nMin: %d  Max: %d  Range: %d\n", plant + 1,
+                sorted[0], sorted[count - 1], sorted[count - 1] - sorted[0]);
+        fprintf(out, "Mean: %.6f  Median: %.6f\n", mean, median);
+        for (i = 1; i < count; i++) {
+            run = sorted[i] == sorted[i - 1] ? run + 1 : 1;
+            if (run > highest) highest = run;
+        }
+        fprintf(out, "Mode(s): ");
+        if (highest == 1) fprintf(out, "none (all values occur once)");
+        else {
+            for (i = 0; i < count; ) {
+                int j = i + 1;
+                while (j < count && sorted[j] == sorted[i]) j++;
+                if (j - i == highest) fprintf(out, "%d ", sorted[i]);
+                i = j;
+            }
+            fprintf(out, "(frequency %d)", highest);
+        }
+        fprintf(out, "\nPopulation variance: %.6f  SD: %.6f\n", m2 / count, sqrt(m2 / count));
+        if (count > 1)
+            fprintf(out, "Sample variance: %.6f  SD: %.6f\n", m2 / (count - 1), sqrt(m2 / (count - 1)));
+        else fprintf(out, "Sample variance and SD: undefined for one record\n");
+    }
+}
+
+void productionReport(FILE *out, const Record data[], int count)
+{
+    long long totals[PLANTS] = {0}, bestDayTotal = -1;
+    int i, p, best = 0, worst = 0, bestSingle = -1;
+    fprintf(out, "\nPRODUCTION PERFORMANCE REPORT\n");
+    for (i = 0; i < count; i++) {
+        long long daily = 0;
+        for (p = 0; p < PLANTS; p++) {
+            totals[p] += data[i].units[p];
+            daily += data[i].units[p];
+            if (data[i].units[p] > bestSingle) bestSingle = data[i].units[p];
+        }
+        if (daily > bestDayTotal) bestDayTotal = daily;
+    }
+    for (p = 0; p < PLANTS; p++) {
+        fprintf(out, "L%d total: %lld units\n", p + 1, totals[p]);
+        if (totals[p] > totals[best]) best = p;
+        if (totals[p] < totals[worst]) worst = p;
+    }
+    fprintf(out, "Best overall plant(s), by total units: ");
+    for (p = 0; p < PLANTS; p++) if (totals[p] == totals[best]) fprintf(out, "L%d ", p + 1);
+    fprintf(out, "\nWorst overall plant(s), by total units: ");
+    for (p = 0; p < PLANTS; p++) if (totals[p] == totals[worst]) fprintf(out, "L%d ", p + 1);
+    fprintf(out, "\nBest single-plant day(s): %d units\n", bestSingle);
+    for (i = 0; i < count; i++) {
+        long long daily = 0;
+        for (p = 0; p < PLANTS; p++) {
+            daily += data[i].units[p];
+            if (data[i].units[p] == bestSingle)
+                fprintf(out, "%04d-%02d-%02d L%d\n", data[i].year, data[i].month, data[i].day, p + 1);
+        }
+        if (daily == bestDayTotal)
+            fprintf(out, "Best all-facility day: %04d-%02d-%02d (%lld units)\n",
+                    data[i].year, data[i].month, data[i].day, daily);
+    }
+}
+
+void searchData(const Record data[], int count)
+{
+    int year, month, day, plant, i, p, found = 0;
+    if (!readInteger("Year: ", &year) || !readInteger("Month: ", &month)
+        || !readInteger("Day: ", &day)
+        || !readInteger("Plant (1-6, or 0 for all plants): ", &plant)) return;
+    if (plant < 0 || plant > 6) { puts("Invalid plant."); return; }
+    for (i = 0; i < count; i++) {
+        if (data[i].year == year && data[i].month == month && data[i].day == day) {
+            found = 1;
+            printf("%04d-%02d-%02d\n", year, month, day);
+            for (p = 0; p < PLANTS; p++)
+                if (plant == 0 || plant == p + 1)
+                    printf("L%d: %d units\n", p + 1, data[i].units[p]);
+        }
+    }
+    if (!found) puts("No production record for that date.");
+}
+
+int main(void)
+{
+    static Record data[MAX_ROWS];
+    int count = 0;
+    char choice[40], filename[512];
+    while (1) {
+        puts("\n1. Load data file\n2. Plant data analyses\n3. Production report");
+        puts("4. Search production by date\n5. Save full report\n6. Exit");
+        printf("Choose: ");
+        if (!readLine(choice, sizeof(choice)) || !strcmp(choice, "6")) break;
+        if (!strcmp(choice, "1")) {
+            printf("Data filename or full path: ");
+            if (!readLine(filename, sizeof(filename))) break;
+            count = loadData(filename, data);
+        } else if (!strcmp(choice, "2") || !strcmp(choice, "3")
+                   || !strcmp(choice, "4") || !strcmp(choice, "5")) {
+            if (!count) { puts("Load data first."); continue; }
+            if (!strcmp(choice, "2")) statistics(stdout, data, count);
+            else if (!strcmp(choice, "3")) productionReport(stdout, data, count);
+            else if (!strcmp(choice, "4")) searchData(data, count);
+            else {
+                FILE *out = fopen("production_report.txt", "w");
+                if (!out) puts("Could not create report.");
+                else {
+                    int failed;
+                    statistics(out, data, count);
+                    productionReport(out, data, count);
+                    failed = ferror(out);
+                    if (fclose(out)) failed = 1;
+                    puts(failed ? "Report write failed." : "Saved production_report.txt.");
+                }
+            }
+        } else puts("Choose an option from 1 through 6.");
+    }
+    return 0;
+}
